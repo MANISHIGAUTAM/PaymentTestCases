@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payment Security Test Cases — 200+ Catalog</title>
+<style>
+  :root{--bg:#0f1419;--panel:#1a212b;--panel2:#222c38;--ink:#e6edf3;--muted:#9ba7b4;
+    --accent:#4cc2ff;--warn:#ffb454;--bad:#ff6b6b;--good:#6bd968;--border:#2b3744;--code:#0b0f14;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.55;}
+  a{color:var(--accent);}
+  header.hero{padding:26px 32px 18px;border-bottom:1px solid var(--border);}
+  h1{margin:0 0 4px;font-size:26px;}
+  .sub{color:var(--muted);font-size:14px;}
+  .legal{background:rgba(255,107,107,.08);border:1px solid var(--bad);border-radius:10px;
+    padding:12px 16px;margin:16px 32px;font-size:13.5px;}
+  .controls{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 32px;
+    border-bottom:1px solid var(--border);}
+  #q{width:100%;padding:11px 14px;border-radius:9px;border:1px solid var(--border);
+    background:var(--panel);color:var(--ink);font-size:15px;}
+  .filters{margin-top:10px;display:flex;flex-wrap:wrap;gap:7px;}
+  .chip{font-size:12.5px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);
+    background:var(--panel);color:var(--muted);cursor:pointer;user-select:none;}
+  .chip.active{background:var(--accent);color:#06222f;border-color:var(--accent);font-weight:600;}
+  #count{color:var(--muted);font-size:13px;margin:10px 32px 0;}
+  main{padding:8px 32px 60px;}
+  .card{border:1px solid var(--border);border-radius:11px;background:var(--panel);
+    padding:14px 18px;margin:12px 0;}
+  .card h3{margin:0 0 8px;font-size:16.5px;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;}
+  .num{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px;}
+  .cat{font-size:10.5px;padding:2px 8px;border-radius:20px;background:var(--panel2);
+    color:var(--accent);text-transform:uppercase;letter-spacing:.4px;font-weight:600;}
+  .row{display:grid;grid-template-columns:78px 1fr;gap:4px 12px;font-size:13.5px;margin:3px 0;}
+  .row b{color:var(--muted);font-weight:600;}
+  .row .fix{color:var(--good);}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);
+    margin:40px 32px 0;padding:18px 0;}
+  mark{background:#3a4a1f;color:#e6f5c0;padding:0 2px;border-radius:3px;}
+  @media(max-width:700px){header.hero,.controls,#count,main,.legal,footer{padding-left:16px;padding-right:16px;margin-left:0;margin-right:0;}.row{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>Payment Security Test Cases</h1>
+  <div class="sub">An exhaustive catalog of payment / money-handling weaknesses — known classes and novel variations — with where they live, how to test, and how to fix. Use search and the category filters below.</div>
+</header>
+<div class="legal">
+  <strong>⚖️ Authorized testing only.</strong> Use these against systems you own or are explicitly authorized to test through a bug-bounty program's defined scope. Unauthorized testing is illegal (CFAA, UK Computer Misuse Act, and equivalents), even if you intend to report findings.
+</div>
+<div class="controls">
+  <input id="q" type="search" placeholder="Search test cases… (e.g. coupon, refund, race, JPY, webhook)" />
+  <div class="filters" id="filters"></div>
+</div>
+<div id="count"></div>
+<main id="list"></main>
+<footer>Educational reference. Test only systems you own or are authorized to test. Categories and entries cover money math, currency/FX, business logic, coupons, refunds, authorization, authentication, race/replay, webhooks, gateway integration, 3DS/SCA, tokenization/PCI, subscriptions, wallets, payouts, fraud controls, configuration, API security, crypto, trading platforms, mobile IAP, marketplace/split payments, fees/tax, and disclosure.</footer>
+<script>
+// ===== render + search + filter =====
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function hl(s,q){s=esc(s);if(!q)return s;try{return s.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>');}catch(e){return s;}}
+var activeCat='All',query='';
+function cats(){var m={};TC.forEach(function(t){m[t.c]=(m[t.c]||0)+1;});return m;}
+function buildFilters(){
+  var m=cats();var keys=['All'].concat(Object.keys(m).sort());
+  var box=document.getElementById('filters');box.innerHTML='';
+  keys.forEach(function(k){
+    var n=k==='All'?TC.length:m[k];
+    var el=document.createElement('span');el.className='chip'+(k===activeCat?' active':'');
+    el.textContent=k+' ('+n+')';el.onclick=function(){activeCat=k;render();buildFilters();};
+    box.appendChild(el);
+  });
+}
+function render(){
+  var q=query.trim().toLowerCase();
+  var out=TC.filter(function(t){
+    if(activeCat!=='All'&&t.c!==activeCat)return false;
+    if(!q)return true;
+    return (t.t+' '+t.c+' '+t.w+' '+t.h+' '+t.f).toLowerCase().indexOf(q)>=0;
+  });
+  document.getElementById('count').textContent=out.length+' of '+TC.length+' test cases shown';
+  var html=out.map(function(t){
+    return '<div class="card"><h3><span class="num">#'+t.id+'</span> '+hl(t.t,q)+
+      ' <span class="cat">'+esc(t.c)+'</span></h3>'+
+      '<div class="row"><b>Where/Why</b><span>'+hl(t.w,q)+'</span></div>'+
+      '<div class="row"><b>How to test</b><span>'+hl(t.h,q)+'</span></div>'+
+      '<div class="row"><b>Fix</b><span class="fix">'+hl(t.f,q)+'</span></div></div>';
+  }).join('');
+  document.getElementById('list').innerHTML=html||'<div class="card">No matches.</div>';
+}
+document.getElementById('q').addEventListener('input',function(e){query=e.target.value;render();});
+// ===== data =====
+var TC=[
+
+{id:1,c:"Money Math",t:"Floating-point price arithmetic",w:"Prices computed with float/double instead of integer minor units; 0.1+0.2 != 0.3.",h:"Send prices with many fractional parts; look for non-terminating decimals or cent drift across endpoints.",f:"Use integer minor units or a decimal type; round once with a defined mode."},
+{id:2,c:"Money Math",t:"Order-of-operations rounding",w:"round(price*qty*(1-disc)) vs round(price)*qty differ.",h:"Compare totals for same cart computed via different operation orders.",f:"Define one canonical formula; round only at the final step."},
+{id:3,c:"Money Math",t:"Rounding-direction inconsistency",w:"Service A rounds half-up, service B truncates; the gap is skimmable.",h:"Feed amounts ending in .005/.015 through two services; compare.",f:"Standardize rounding mode (e.g. banker's) everywhere; reconcile."},
+{id:4,c:"Money Math",t:"Salami slicing (sub-cent skim)",w:"Fractional remainders routed to an attacker account over many txns.",h:"Run many small transactions; check where residual fractions accrue.",f:"Account for every minor unit; assign remainders deterministically and audited."},
+{id:5,c:"Money Math",t:"Currency precision mismatch",w:"Code assumes 2 decimals; JPY=0, BHD/KWD=3, crypto up to 18.",h:"Send JPY 1.005 or BHD 1.2345; see if sub-units survive or vanish.",f:"Per-currency exponent table (ISO 4217); round to that unit."},
+{id:6,c:"Money Math",t:"Integer overflow on amount",w:"Fixed-width money field wraps; JS past MAX_SAFE_INTEGER loses precision.",h:"Send huge amounts/qty; look for wraparound or truncation.",f:"Big-integer/decimal types; enforce max bounds."},
+{id:7,c:"Money Math",t:"Negative amount accepted",w:"Charge/transfer with negative value becomes a credit.",h:"Send amount=-50 to charge/transfer/topup.",f:"Validate amount>0 server-side."},
+{id:8,c:"Money Math",t:"Zero amount fulfillment",w:"amount=0 passes and triggers free fulfillment.",h:"Send amount=0 or empty; check for order completion.",f:"Reject non-positive amounts; require minimum where appropriate."},
+{id:9,c:"Money Math",t:"Non-numeric / NaN amount coercion",w:"'abc' or NaN coerced to 0 or skips checks.",h:"Send non-numeric, null, scientific notation (1e3), hex.",f:"Strict type/format validation before parsing."},
+{id:10,c:"Money Math",t:"Locale decimal separator confusion",w:"'1,000' parsed as 1 or 1000 inconsistently.",h:"Send comma/period/space separators in amount.",f:"Canonical wire format (minor units); reject ambiguous input."},
+{id:11,c:"Money Math",t:"Scientific notation bypass",w:"1e2 interpreted as 100 by some parsers, rejected by others.",h:"Submit 1e2, 0x10, leading-zero values.",f:"Whitelist a strict numeric grammar."},
+{id:12,c:"Money Math",t:"Floating tax/discount compounding",w:"Tax then discount vs discount then tax yields different totals.",h:"Toggle order of tax/discount; compare final charge.",f:"Specify legally-correct sequence; compute on integers."},
+{id:13,c:"Money Math",t:"Percentage rounding abuse",w:"Per-line rounding lets many small lines round down to 0.",h:"Build cart with many tiny lines under rounding threshold.",f:"Round at invoice level, not per line; track residue."},
+{id:14,c:"Money Math",t:"Division remainder loss in splits",w:"Splitting 10.00 three ways loses a cent.",h:"Split amounts not divisible by party count; sum the parts.",f:"Largest-remainder allocation so parts sum to total."},
+{id:15,c:"Money Math",t:"Truncation vs rounding on display vs charge",w:"UI shows rounded value but charges raw float.",h:"Compare displayed total to actually-captured amount.",f:"Charge exactly what is shown; single source of truth."},
+{id:16,c:"Money Math",t:"Implicit unit assumption (cents vs dollars)",w:"One service sends dollars, another expects cents -> 100x error.",h:"Trace amount across services; look for x100 discrepancies.",f:"Always pass explicit currency + minor units; validate scale."},
+{id:17,c:"Money Math",t:"Signed/unsigned confusion",w:"Negative interpreted as large positive (or vice versa).",h:"Send boundary and negative values to typed fields.",f:"Consistent signedness; explicit range checks."},
+{id:18,c:"Money Math",t:"Precision loss in JSON number",w:"Large integers lose precision when parsed as JSON doubles.",h:"Send 9007199254740993 as amount; check round-trip equality.",f:"Transmit money as strings; parse with big-decimal."},
+{id:19,c:"Currency/FX",t:"Round-trip conversion loss",w:"A->B->A != A due to float/asymmetric rates; skim per cycle.",h:"Convert forward then back; any non-zero delta is a finding.",f:"Convert via canonical base; round once into target unit; log rate+timestamp."},
+{id:20,c:"Currency/FX",t:"Stale exchange-rate exploitation",w:"Quote locked at T, settled at T+n with different rate.",h:"Delay settlement after favorable quote; check applied rate.",f:"Expire quotes; re-validate rate at settlement within tolerance."},
+{id:21,c:"Currency/FX",t:"Currency-swap parameter manipulation",w:"Amount kept but currency switched to weak/0-decimal unit.",h:"Pay 100 but change currency param; check mis-scaling.",f:"Bind (amount,currency) to catalog price server-side."},
+{id:22,c:"Currency/FX",t:"Buy-low-currency / refund-high-currency",w:"Purchase in cheap region, refund converted to stronger currency.",h:"Test whether refund currency can differ from purchase currency.",f:"Refund in original currency and amount; no FX on refund."},
+{id:23,c:"Currency/FX",t:"Regional price arbitrage via geo/coupon",w:"Region-locked discount applied then order shipped/used elsewhere.",h:"Set cheap region, apply regional coupon, switch delivery region.",f:"Validate region consistency at fulfillment; bind price to verified region."},
+{id:24,c:"Currency/FX",t:"Unknown/forged currency code",w:"Custom currency code defaults to rate 1 or skips validation.",h:"Send XXX/ZZZ/empty currency; observe handling.",f:"Whitelist supported ISO codes; reject others."},
+{id:25,c:"Currency/FX",t:"Rate sign/inversion error",w:"App divides where it should multiply, inverting the rate.",h:"Convert known amount; verify direction of conversion.",f:"Unit tests on conversion direction; assert invariants."},
+{id:26,c:"Currency/FX",t:"Cross-rate triangulation gap",w:"A->C cheaper than A->B->C, creating arbitrage.",h:"Compare direct vs triangulated conversion paths.",f:"Derive cross-rates consistently from a single source."},
+{id:27,c:"Currency/FX",t:"Crypto decimal mismatch (wei/satoshi)",w:"18-decimal token treated as 8 or 2 decimals.",h:"Send token amounts with full native precision.",f:"Use each asset's native decimals; big-integer base units."},
+{id:28,c:"Currency/FX",t:"Negative spread / fee abuse",w:"Fee computed such that conversion nets a gain.",h:"Run conversions checking if net result exceeds input value.",f:"Ensure spread+fees never produce user gain; clamp."},
+{id:29,c:"Currency/FX",t:"Mixed-currency cart summation",w:"Line items in different currencies summed as if same.",h:"Add items in USD and JPY to one cart; inspect total.",f:"Convert all lines to one currency before summing."},
+{id:30,c:"Currency/FX",t:"Refund FX timing gain",w:"Refund recomputed at new rate yields more than paid.",h:"Refund after favorable rate move; compare to original.",f:"Refund the exact original captured amount."},
+{id:31,c:"Currency/FX",t:"Rounding into zero for micro-currencies",w:"Tiny amounts round to 0 and are processed as free.",h:"Charge amounts below the smallest minor unit.",f:"Reject sub-minimum amounts; enforce minimum charge."},
+{id:32,c:"Currency/FX",t:"Display currency vs settlement currency mismatch",w:"User sees one currency, settled in another at bad rate.",h:"Compare displayed vs settled currency and amount.",f:"Settle in the currency shown; disclose conversions."},
+{id:33,c:"Currency/FX",t:"DCC (dynamic currency conversion) manipulation",w:"Client-chosen conversion option alters merchant receipt amount.",h:"Toggle DCC client-side; verify merchant-side amount unchanged.",f:"Server authoritative on settlement amount; DCC display-only."},
+{id:34,c:"Currency/FX",t:"Rate cache poisoning",w:"Stale/forced cached rate used for conversion.",h:"Probe whether rate endpoint honors client cache hints.",f:"Server-controlled rate cache with TTL; ignore client hints."},
+
+{id:35,c:"Cart & Pricing",t:"Client-supplied price trusted",w:"Checkout accepts price/amount from the client.",h:"Intercept request; set amount=0.01; submit.",f:"Recompute authoritative price server-side from product IDs."},
+{id:36,c:"Cart & Pricing",t:"Negative quantity credit",w:"qty<0 turns total into a refund/credit.",h:"Send qty=-2; observe negative total.",f:"Validate qty integer >=1."},
+{id:37,c:"Cart & Pricing",t:"Fractional quantity exploit",w:"qty=0.0001 charges near-zero for whole item.",h:"Send fractional qty for non-divisible goods.",f:"Integer qty for discrete items; min charge."},
+{id:38,c:"Cart & Pricing",t:"Quantity overflow to wrap negative",w:"Huge qty overflows to a negative total.",h:"Send qty near integer max; inspect total sign.",f:"Bound qty; use safe integer types."},
+{id:39,c:"Cart & Pricing",t:"Product ID swap after pricing",w:"Price quoted for cheap item, ID swapped to expensive at pay.",h:"Change product ID between quote and capture.",f:"Bind price token to exact product+version; re-validate."},
+{id:40,c:"Cart & Pricing",t:"Hidden/unpublished product purchase",w:"Guessable IDs let purchase of unlisted items at default price.",h:"Enumerate product IDs; attempt add-to-cart.",f:"Authorize product availability; no default pricing."},
+{id:41,c:"Cart & Pricing",t:"Bundle/component price desync",w:"Bundle price not equal to sum; mix to underpay.",h:"Add/remove bundle components; compare totals.",f:"Compute bundle pricing atomically server-side."},
+{id:42,c:"Cart & Pricing",t:"Shipping cost manipulation",w:"Client sets shipping=0 or negative.",h:"Tamper shipping field; check total.",f:"Server computes shipping from rules/carrier."},
+{id:43,c:"Cart & Pricing",t:"Tax field tampering",w:"Client-set tax to 0 or negative reduces total.",h:"Edit tax amount/rate in request.",f:"Server computes tax from jurisdiction; ignore client."},
+{id:44,c:"Cart & Pricing",t:"Tip/gratuity negative or excessive",w:"Negative tip reduces total; huge tip on others' tabs.",h:"Send negative/oversized tip values.",f:"Bound tip; validate ownership of the tab."},
+{id:45,c:"Cart & Pricing",t:"Price-list/version race",w:"Add to cart at old price during a price change.",h:"Add item as price updates; check captured price.",f:"Lock price by version at checkout; expire stale carts."},
+{id:46,c:"Cart & Pricing",t:"Min-order-threshold bypass for free shipping",w:"Add then remove items after threshold check.",h:"Cross threshold, remove items pre-payment.",f:"Re-evaluate thresholds at capture."},
+{id:47,c:"Cart & Pricing",t:"Currency of price vs cart mismatch",w:"Item priced in cheap currency added to costly-currency cart.",h:"Mix currency contexts when adding items.",f:"Normalize to cart currency at add time."},
+{id:48,c:"Cart & Pricing",t:"Reward-points-as-cash overflow",w:"Points redeemed exceed balance via race or negative.",h:"Redeem more points than held; concurrent redeem.",f:"Atomic balance check; clamp to available."},
+{id:49,c:"Cart & Pricing",t:"Pre-order vs in-stock price confusion",w:"Pre-order price honored for immediate fulfillment.",h:"Switch fulfillment type after pricing.",f:"Bind price to fulfillment type at capture."},
+{id:50,c:"Cart & Pricing",t:"Decimal injection in qty/price",w:"Extra precision sneaks past validation.",h:"Send qty=1.000000001 or price with hidden decimals.",f:"Canonicalize and validate precision strictly."},
+{id:51,c:"Coupons & Gift Cards",t:"Coupon stacking",w:"Same/multiple coupons applied repeatedly multiply discount.",h:"Submit a coupon list with duplicates/combos.",f:"Enforce one coupon or explicit stacking rules server-side."},
+{id:52,c:"Coupons & Gift Cards",t:"Single-use coupon race (double-spend)",w:"Concurrent redeems pass the used-check (TOCTOU).",h:"Fire many parallel redeem requests for one code.",f:"Atomic conditional update / unique constraint."},
+{id:53,c:"Coupons & Gift Cards",t:"Coupon brute force / enumeration",w:"Weak codes, no rate limit -> guessable.",h:"Compare valid/invalid responses; test throttling.",f:"High-entropy codes; rate limit; uniform responses."},
+{id:54,c:"Coupons & Gift Cards",t:"Expired coupon still accepted",w:"Expiry checked on UI but not server.",h:"Replay an expired code directly to the API.",f:"Server-side expiry validation."},
+{id:55,c:"Coupons & Gift Cards",t:"Coupon applied to ineligible items",w:"Category restriction enforced client-side only.",h:"Apply category coupon to excluded items via API.",f:"Validate eligibility server-side."},
+{id:56,c:"Coupons & Gift Cards",t:"Percentage > 100 or negative",w:"Discount >100% yields a payout.",h:"If discount editable, push beyond bounds.",f:"Clamp discount 0–100%; server-defined only."},
+{id:57,c:"Coupons & Gift Cards",t:"First-order coupon reuse",w:"New-customer coupon reused via new accounts/devices.",h:"Create multiple accounts; reuse the offer.",f:"Bind to verified identity/payment instrument; velocity checks."},
+{id:58,c:"Coupons & Gift Cards",t:"Gift-card balance race",w:"Parallel spends exceed balance.",h:"Spend same card concurrently across sessions.",f:"Atomic balance decrement with locking."},
+{id:59,c:"Coupons & Gift Cards",t:"Gift-card number enumeration",w:"Sequential card numbers + no rate limit reveal funded cards.",h:"Probe ranges; observe balance-check responses.",f:"Random codes + check digit; rate limit; lockout."},
+{id:60,c:"Coupons & Gift Cards",t:"Negative gift-card top-up",w:"Topping up a negative value moves funds out.",h:"Send negative reload amount.",f:"Validate positive top-up; authorize source."},
+{id:61,c:"Coupons & Gift Cards",t:"Coupon on already-discounted price recursion",w:"Coupon reapplied to post-coupon price loops down.",h:"Reapply coupon to discounted subtotal.",f:"Apply once to base; idempotent application."},
+{id:62,c:"Coupons & Gift Cards",t:"Referral self-redemption",w:"User refers themselves for both bonuses.",h:"Complete referral loop with linked accounts.",f:"Detect self-referral; identity/device/payment linkage."},
+{id:63,c:"Coupons & Gift Cards",t:"Loyalty points negative balance",w:"Spend points to negative, generating value.",h:"Redeem beyond balance; concurrent redeem.",f:"Atomic non-negative balance enforcement."},
+{id:64,c:"Coupons & Gift Cards",t:"Coupon currency mismatch",w:"$10-off applied as 10-units-off in cheaper currency.",h:"Apply fixed-amount coupon across currencies.",f:"Convert fixed-amount coupons to cart currency."},
+{id:65,c:"Coupons & Gift Cards",t:"Store-credit refund laundering",w:"Buy with card, refund to store credit, then cash out.",h:"Check if store credit can be withdrawn/transferred.",f:"Restrict store-credit cash-out; bind to original tender."},
+{id:66,c:"Coupons & Gift Cards",t:"Promo combined with price-match",w:"Price-match + coupon below cost.",h:"Stack price-match guarantee with promo.",f:"Define mutually-exclusive promotions; floor at cost."},
+
+{id:67,c:"Refunds & Chargebacks",t:"Double refund",w:"Refund endpoint not idempotent; refunded twice.",h:"Submit the same refund request twice/parallel.",f:"Track refunded amount atomically; idempotency keys."},
+{id:68,c:"Refunds & Chargebacks",t:"Refund exceeding capture",w:"Refund amount > captured charge.",h:"Request refund larger than original.",f:"Cap refund at remaining captured balance."},
+{id:69,c:"Refunds & Chargebacks",t:"Refund to different instrument",w:"Refund directed to attacker's card/account.",h:"Change destination instrument on refund.",f:"Refund only to original payment instrument."},
+{id:70,c:"Refunds & Chargebacks",t:"Refund to different account (laundering)",w:"Buy on A, refund into B.",h:"Attempt refund crediting a non-payer account.",f:"Bind refund to original payer + charge."},
+{id:71,c:"Refunds & Chargebacks",t:"Partial-refund rounding gain",w:"Sum of partial refunds exceeds total via rounding.",h:"Issue many small partial refunds; sum them.",f:"Track integer remaining; final partial absorbs residue."},
+{id:72,c:"Refunds & Chargebacks",t:"Refund-after-chargeback double recovery",w:"Refund issued plus chargeback won = double loss.",h:"Trigger chargeback then request refund.",f:"Reconcile chargebacks; block refund if disputed."},
+{id:73,c:"Refunds & Chargebacks",t:"Cancel-after-ship refund",w:"Cancel/refund after goods shipped/consumed.",h:"Cancel post-fulfillment; check refund.",f:"State guard: no refund post-fulfillment without return."},
+{id:74,c:"Refunds & Chargebacks",t:"Refund of FX gain",w:"Refund recomputed at new rate exceeds paid.",h:"Refund after favorable FX move.",f:"Refund exact original amount/currency."},
+{id:75,c:"Refunds & Chargebacks",t:"Friendly-fraud auto-approve",w:"Auto-approved refunds with no proof of return.",h:"Request refunds repeatedly; check thresholds.",f:"Require return/proof above threshold; velocity limits."},
+{id:76,c:"Refunds & Chargebacks",t:"Refund of $0/negative",w:"Negative refund pulls funds from customer.",h:"Send negative refund amount.",f:"Validate refund>0 and <=captured."},
+{id:77,c:"Refunds & Chargebacks",t:"Refund on unpaid order",w:"Refund issued for never-captured order.",h:"Request refund on a created/unpaid order.",f:"Refund only against settled captures."},
+{id:78,c:"Refunds & Chargebacks",t:"Refund timing race vs capture",w:"Refund processed before capture clears, netting funds.",h:"Race refund against pending capture.",f:"Serialize capture/refund state machine."},
+{id:79,c:"Refunds & Chargebacks",t:"Goodwill credit stacking",w:"Multiple goodwill credits for one complaint.",h:"Open multiple tickets for same issue.",f:"Link credits to incident; dedupe."},
+{id:80,c:"Refunds & Chargebacks",t:"Refund to expired/closed card reissue",w:"Refund routed to reassigned card number.",h:"Refund to a closed card; trace destination.",f:"Verify instrument validity; use network refund rails."},
+{id:81,c:"Authorization",t:"IDOR on order/invoice",w:"Object ID accessed without ownership check (OWASP API#1).",h:"As user A, request user B's order/invoice ID.",f:"Object-level authorization on every access."},
+{id:82,c:"Authorization",t:"IDOR on payment method",w:"Read/charge another user's saved card via ID.",h:"Swap payment-method ID to another user's.",f:"Scope payment methods to owner; authorize."},
+{id:83,c:"Authorization",t:"IDOR on refund/payout target",w:"Direct funds to an object you don't own.",h:"Change account/payout ID in request.",f:"Verify ownership of destination."},
+{id:84,c:"Authorization",t:"Function-level authz missing (BFLA)",w:"Non-admin calls admin pricing/refund endpoints.",h:"Call privileged endpoints as a normal user.",f:"Enforce role checks per function server-side."},
+{id:85,c:"Authorization",t:"Mass assignment of role/balance",w:"Extra JSON fields set balance/role/isAdmin.",h:"Add balance/role fields to a normal request.",f:"Whitelist bindable fields; ignore others."},
+{id:86,c:"Authorization",t:"Tenant isolation break (multi-tenant)",w:"Cross-tenant access to merchant data/funds.",h:"Use tenant A token against tenant B resources.",f:"Enforce tenant scoping on every query."},
+{id:87,c:"Authorization",t:"Merchant-of-record impersonation",w:"Act as another merchant in a platform.",h:"Swap merchant ID in API calls.",f:"Bind credentials to merchant; verify."},
+{id:88,c:"Authorization",t:"Sub-account privilege escalation",w:"Sub-user performs owner-only money moves.",h:"Attempt payouts/transfers as limited sub-user.",f:"Granular permissions; server-side checks."},
+{id:89,c:"Authorization",t:"Hidden parameter authz bypass",w:"is_admin/override flags honored from client.",h:"Add override/admin flags to requests.",f:"Never trust client authz flags."},
+{id:90,c:"Authorization",t:"GraphQL field-level authz gap",w:"Sensitive payment fields exposed via nested queries.",h:"Query related objects to reach unauthorized fields.",f:"Field-level authorization; depth/complexity limits."},
+{id:91,c:"Authorization",t:"Export/report scope leak",w:"Reports return other accounts' transactions.",h:"Request reports with altered scope/date/account IDs.",f:"Scope report queries to authorized accounts."},
+{id:92,c:"Authorization",t:"Webhook endpoint reconfiguration",w:"Attacker points merchant webhooks to their URL.",h:"Try to set webhook URL without proper authz.",f:"Authorize and verify webhook config changes."},
+
+{id:93,c:"Authentication",t:"Step-up auth skipped for high-value",w:"Large transfers don't re-prompt for auth.",h:"Initiate high-value money move without re-auth.",f:"Require step-up/reauth above risk thresholds."},
+{id:94,c:"Authentication",t:"Payment OTP brute force",w:"OTP for payment confirmation not rate-limited.",h:"Attempt many OTP guesses per transaction.",f:"Limit attempts; lockout; short OTP TTL."},
+{id:95,c:"Authentication",t:"OTP reuse across transactions",w:"Same OTP validates multiple payments.",h:"Reuse a prior OTP on a new transaction.",f:"Bind OTP to a single transaction; consume on use."},
+{id:96,c:"Authentication",t:"Session fixation on checkout",w:"Pre-set session carries into authenticated checkout.",h:"Fix a session, have victim authenticate, reuse.",f:"Rotate session on auth; bind to user."},
+{id:97,c:"Authentication",t:"CSRF on payment/transfer",w:"State-changing money action lacks anti-CSRF.",h:"Craft cross-site POST to transfer/pay.",f:"CSRF tokens / SameSite; re-auth for money moves."},
+{id:98,c:"Authentication",t:"JWT 'none'/weak-key on payment API",w:"Forge tokens to act as another payer.",h:"Test alg=none, weak HMAC secret, kid injection.",f:"Pin algorithms; verify signature; strong keys."},
+{id:99,c:"Authentication",t:"Long-lived payment token not revoked",w:"Stale token still authorizes after logout.",h:"Use a token after logout/password change.",f:"Revoke tokens on logout/credential change."},
+{id:100,c:"Authentication",t:"Password reset -> payment takeover",w:"Reset flow grants access to stored instruments.",h:"Chain account takeover into saved-card use.",f:"Re-auth before using/altering payment methods."},
+{id:101,c:"Authentication",t:"Device-binding bypass",w:"Trusted-device skip abused on attacker device.",h:"Spoof device fingerprint/cookie to skip auth.",f:"Strong device binding; re-verify anomalies."},
+{id:102,c:"Authentication",t:"Biometric/Pin client-only check",w:"App enforces PIN locally but server doesn't.",h:"Call payment API directly skipping the app gate.",f:"Enforce auth server-side, not just in client."},
+{id:103,c:"Authentication",t:"Magic-link reuse for payment consent",w:"Consent link replayable to approve charges.",h:"Replay a consent/approval link.",f:"Single-use, short-lived, bound consent links."},
+{id:104,c:"Authentication",t:"OAuth scope over-grant for payments",w:"Token has broader payment scope than needed.",h:"Inspect granted scopes vs required.",f:"Least-privilege scopes; consent per action."},
+{id:105,c:"Race & Concurrency",t:"Single-use coupon double-spend",w:"Check-then-set not atomic.",h:"Fire concurrent redeems of one code.",f:"Atomic conditional update; unique constraint."},
+{id:106,c:"Race & Concurrency",t:"Balance withdrawal race",w:"Parallel withdrawals exceed balance.",h:"Withdraw concurrently from one account.",f:"Row lock / SELECT FOR UPDATE; serialize."},
+{id:107,c:"Race & Concurrency",t:"Wallet transfer double-spend",w:"Same funds sent to two recipients concurrently.",h:"Issue two transfers in parallel.",f:"Atomic debit with locking; ledger invariants."},
+{id:108,c:"Race & Concurrency",t:"Gift-card concurrent redemption",w:"Balance read stale across parallel spends.",h:"Spend a card from multiple sessions at once.",f:"Atomic decrement; optimistic concurrency."},
+{id:109,c:"Race & Concurrency",t:"Inventory oversell at checkout",w:"Last-item bought by many concurrently.",h:"Concurrent purchases of last unit; check oversell.",f:"Reserve stock atomically at order creation."},
+{id:110,c:"Race & Concurrency",t:"Refund vs capture race",w:"Refund before capture nets funds.",h:"Race refund and capture timing.",f:"State machine serialization; pending guards."},
+{id:111,c:"Race & Concurrency",t:"Loyalty earn/burn race",w:"Earn and burn concurrently double-counts.",h:"Earn and redeem points in parallel.",f:"Atomic ledger; consistent isolation level."},
+{id:112,c:"Race & Concurrency",t:"Subscription upgrade proration race",w:"Concurrent plan changes mis-prorate credit.",h:"Trigger overlapping plan changes.",f:"Serialize plan changes; idempotent proration."},
+{id:113,c:"Race & Concurrency",t:"Cart-total vs price-update race",w:"Pay at old price during update.",h:"Capture during a price change window.",f:"Lock price by version; expire carts."},
+{id:114,c:"Race & Concurrency",t:"Limit-check TOCTOU",w:"Spending/withdrawal limit checked then exceeded concurrently.",h:"Submit many ops that each individually pass the limit.",f:"Atomic limit accounting under lock."},
+{id:115,c:"Race & Concurrency",t:"Idempotency-key race collision",w:"Two requests with same key processed before record written.",h:"Send duplicate-key requests in parallel.",f:"Unique constraint on key; insert-then-process."},
+{id:116,c:"Race & Concurrency",t:"Hold/auth then over-capture",w:"Multiple captures against one authorization.",h:"Capture an auth more than once concurrently.",f:"Track captured vs authorized atomically."},
+{id:117,c:"Replay & Idempotency",t:"Missing idempotency on pay",w:"Retry/double-click double-charges or double-credits.",h:"Resubmit identical pay request.",f:"Require idempotency key; dedupe within window."},
+{id:118,c:"Replay & Idempotency",t:"Webhook event replay",w:"Re-sent event applied twice (credit/fulfill).",h:"Replay a valid signed webhook.",f:"Dedupe by event ID; reject seen IDs."},
+{id:119,c:"Replay & Idempotency",t:"Payment token replay",w:"One-time token accepted again.",h:"Reuse a used payment/nonce token.",f:"Single-use nonces; consume server-side."},
+{id:120,c:"Replay & Idempotency",t:"Signed-request replay (no nonce/timestamp)",w:"Valid signed message re-sent later.",h:"Capture and resend a signed request.",f:"Include+verify timestamp+nonce; reject stale."},
+{id:121,c:"Replay & Idempotency",t:"Idempotency key reuse with different body",w:"Same key, changed amount returns cached or mis-applies.",h:"Reuse key with altered payload.",f:"Bind key to request hash; reject mismatches."},
+{id:122,c:"Replay & Idempotency",t:"Cross-user idempotency-key collision",w:"Global key namespace leaks/overwrites results.",h:"Use another user's key value.",f:"Scope keys per user/merchant."},
+{id:123,c:"Replay & Idempotency",t:"3DS authentication replay",w:"Reuse a prior 3DS result for a new charge.",h:"Replay cavv/ECI from earlier auth.",f:"Bind auth result to a single transaction."},
+{id:124,c:"Replay & Idempotency",t:"Receipt/confirmation replay to unlock content",w:"Replaying success unlocks repeatedly.",h:"Resend a success receipt to entitlement API.",f:"Verify entitlement server-side; single-use receipts."},
+
+{id:125,c:"Webhooks",t:"Signature not verified",w:"Forged 'paid' event accepted.",h:"POST a fake success with no/garbage signature.",f:"Verify HMAC over raw body; constant-time compare."},
+{id:126,c:"Webhooks",t:"Signature over parsed (not raw) body",w:"Re-serialized body changes bytes; verification weak or bypassable.",h:"Send body that re-serializes differently.",f:"Verify against the exact raw bytes received."},
+{id:127,c:"Webhooks",t:"Timing-unsafe signature compare",w:"== comparison leaks via timing.",h:"Measure response timing across signature guesses.",f:"Constant-time comparison."},
+{id:128,c:"Webhooks",t:"No replay/timestamp tolerance",w:"Old events replayed.",h:"Replay a captured event later.",f:"Reject events outside time window; dedupe IDs."},
+{id:129,c:"Webhooks",t:"Trusting event amount/status blindly",w:"Event fields trusted without re-fetch.",h:"Forge amount/status in a (signed-looking) event.",f:"Re-fetch authoritative object from provider API."},
+{id:130,c:"Webhooks",t:"Webhook endpoint unauthenticated SSRF",w:"Endpoint fetches attacker-controlled URLs.",h:"Provide internal URLs in event payload.",f:"Validate/allowlist outbound URLs; no fetch on input."},
+{id:131,c:"Webhooks",t:"Secret rotation gap",w:"Old secret still accepted indefinitely.",h:"Test old secret after rotation.",f:"Dual-key window then retire old secret."},
+{id:132,c:"Webhooks",t:"Event-type confusion",w:"Refund event processed as payment success.",h:"Send mismatched type vs payload.",f:"Validate type maps to handler and payload schema."},
+{id:133,c:"Webhooks",t:"Out-of-order delivery mishandling",w:"refunded then paid applied literally.",h:"Deliver events out of order.",f:"Use authoritative state + version, not event order."},
+{id:134,c:"Webhooks",t:"Webhook for another merchant accepted",w:"Cross-merchant event applied locally.",h:"Replay an event with another merchant's IDs.",f:"Verify merchant/account binding on events."},
+{id:135,c:"Gateway Integration",t:"Browser-returned status trusted",w:"App marks paid from redirect query param.",h:"Edit status=success on return from gateway.",f:"Confirm via server-to-server or signed webhook only."},
+{id:136,c:"Gateway Integration",t:"Return-URL tampering",w:"Manipulated return URL skips verification.",h:"Alter return/callback URL params.",f:"Sign+verify return params; server-side confirm."},
+{id:137,c:"Gateway Integration",t:"Cancel-to-success conversion",w:"Cancelled payment turned into success client-side.",h:"Cancel at gateway, force success path in app.",f:"Reconcile final state with provider."},
+{id:138,c:"Gateway Integration",t:"Amount mismatch app vs gateway",w:"App expects 100, gateway captured 1.",h:"Pay a different amount than the app intends.",f:"Verify captured amount equals expected amount."},
+{id:139,c:"Gateway Integration",t:"Order ID reuse across payments",w:"One successful payment satisfies many orders.",h:"Reuse a paid order/reference for new orders.",f:"Unique reference per intent; verify one-to-one."},
+{id:140,c:"Gateway Integration",t:"Hosted-field iframe spoofing",w:"Fake card iframe captures PAN.",h:"Check origin/integrity of payment iframe.",f:"Provider-hosted fields; CSP; integrity checks."},
+{id:141,c:"Gateway Integration",t:"Client secret/publishable key misuse",w:"Secret key in client or publishable used server-side.",h:"Search client bundle for secret keys.",f:"Keep secret keys server-only; restrict publishable."},
+{id:142,c:"Gateway Integration",t:"Callback without server confirmation",w:"Fulfillment on callback alone, never confirmed.",h:"Hit callback URL directly with success.",f:"Always confirm with provider before fulfilling."},
+{id:143,c:"Gateway Integration",t:"Currency/amount param desync to gateway",w:"Different currency sent to gateway than charged user.",h:"Mismatch currency between app and gateway call.",f:"Single authoritative (amount,currency) to gateway."},
+{id:144,c:"Gateway Integration",t:"Test/live key environment confusion",w:"Test transactions accepted as real.",h:"Use test keys/cards against production flow.",f:"Assert live mode in prod; segregate keys."},
+{id:145,c:"Gateway Integration",t:"Redirect open-redirect post-payment",w:"Attacker redirects user after pay.",h:"Inject external URL into post-pay redirect.",f:"Allowlist redirect targets."},
+{id:146,c:"Gateway Integration",t:"Multiple intents one capture",w:"Several payment intents satisfied by one capture.",h:"Map one capture to many intents.",f:"Bind capture to a single intent; reconcile."},
+{id:147,c:"3DS & SCA",t:"3DS challenge skip",w:"Frictionless path forced to bypass challenge.",h:"Manipulate flags to avoid the challenge.",f:"Server enforces challenge per risk/regulation."},
+{id:148,c:"3DS & SCA",t:"Abandoned challenge treated as success",w:"User closes 3DS, order still completes.",h:"Abandon the challenge; check completion.",f:"Require successful auth result server-side."},
+{id:149,c:"3DS & SCA",t:"SCA exemption abuse",w:"Low-value/TRA exemption forced inappropriately.",h:"Flag transactions as exempt repeatedly.",f:"Server decides exemptions; monitor exemption rate."},
+{id:150,c:"3DS & SCA",t:"3DS result spoofing",w:"Client supplies forged auth result (ECI/CAVV).",h:"Inject success auth values without real 3DS.",f:"Trust only provider-validated auth data."},
+{id:151,c:"3DS & SCA",t:"Soft-decline retry without auth",w:"Retry after soft decline skips required SCA.",h:"Retry a soft-declined charge sans challenge.",f:"Re-trigger SCA on retries as required."},
+{id:152,c:"3DS & SCA",t:"Merchant-initiated transaction abuse",w:"MIT flag used to bypass customer auth.",h:"Mark customer-initiated as merchant-initiated.",f:"Validate MIT eligibility and prior consent."},
+
+{id:153,c:"Tokenization & PCI",t:"PAN in logs/responses",w:"Full card number logged or echoed.",h:"Inspect logs/responses/errors for PAN.",f:"Never log PAN; mask; tokenize early."},
+{id:154,c:"Tokenization & PCI",t:"Card token cross-user usability",w:"Token usable by another account.",h:"Use another user's card token.",f:"Bind token to owner; authorize on use."},
+{id:155,c:"Tokenization & PCI",t:"Detokenization endpoint exposed",w:"Token->PAN reversible via API.",h:"Probe for detokenize endpoints/params.",f:"Restrict detokenization; vaulted, audited, scoped."},
+{id:156,c:"Tokenization & PCI",t:"CVV stored or logged",w:"CVV persisted against PCI rules.",h:"Check storage/logs for CVV after auth.",f:"Never store CVV post-authorization."},
+{id:157,c:"Tokenization & PCI",t:"Predictable token format",w:"Tokens derived from PAN are guessable.",h:"Analyze tokens for structure/correlation to PAN.",f:"Random, non-reversible tokens; vault mapping."},
+{id:158,c:"Tokenization & PCI",t:"Card BIN/range enumeration",w:"No throttle on card validation reveals valid BINs.",h:"Test rate limits on card add/validate (own systems).",f:"Rate limit; bot defense; minimal validation feedback."},
+{id:159,c:"Tokenization & PCI",t:"Stored-card reuse without CVV/auth",w:"Charge saved card with no re-auth.",h:"Charge a saved instrument without verification.",f:"Re-auth/CVV per policy; risk checks."},
+{id:160,c:"Tokenization & PCI",t:"Apple/Google Pay token misbinding",w:"Network token used outside its merchant scope.",h:"Replay a wallet token to another merchant.",f:"Validate token domain/merchant binding."},
+{id:161,c:"Tokenization & PCI",t:"Saved-card list IDOR",w:"List/delete another user's cards.",h:"Enumerate card IDs across users.",f:"Scope card resources to owner."},
+{id:162,c:"Tokenization & PCI",t:"Card data in URL/query",w:"PAN/token in GET URL leaks via referer/logs.",h:"Check whether card data passes via query string.",f:"Use POST body/headers; never card data in URLs."},
+{id:163,c:"Subscriptions",t:"Trial abuse via new accounts",w:"Free trial reused endlessly.",h:"Create accounts/instruments to re-trial.",f:"Bind trial eligibility to identity/instrument; velocity."},
+{id:164,c:"Subscriptions",t:"Cancel-but-keep-access",w:"Entitlement persists after cancellation/refund.",h:"Cancel/refund; verify access revoked.",f:"Revoke entitlement on cancel; reconcile."},
+{id:165,c:"Subscriptions",t:"Proration credit exploit",w:"Up/downgrade loops generate net credit.",h:"Cycle plan changes; track credits.",f:"Idempotent proration; clamp credits; serialize."},
+{id:166,c:"Subscriptions",t:"Downgrade after premium use",w:"Use premium then downgrade to avoid charge.",h:"Consume premium then immediately downgrade.",f:"Charge for usage period; meter entitlements."},
+{id:167,c:"Subscriptions",t:"Coupon on recurring charges forever",w:"One-time coupon applies to every renewal.",h:"Apply intro coupon; observe renewals.",f:"Scope coupon to first cycle explicitly."},
+{id:168,c:"Subscriptions",t:"Dunning/retry double-charge",w:"Failed-payment retries double-charge on success.",h:"Trigger retries then a success.",f:"Idempotent dunning; single successful capture."},
+{id:169,c:"Subscriptions",t:"Plan price change not honored",w:"Old price locked indefinitely via tampering.",h:"Tamper plan/price IDs at renewal.",f:"Server resolves current plan price at renewal."},
+{id:170,c:"Subscriptions",t:"Pause/resume billing gap",w:"Pause keeps access but stops billing.",h:"Pause repeatedly while retaining access.",f:"Suspend entitlement on pause; limit pauses."},
+{id:171,c:"Subscriptions",t:"Seat-count manipulation",w:"More seats used than billed.",h:"Add seats post-billing; check enforcement.",f:"Enforce licensed seats; reconcile usage."},
+{id:172,c:"Subscriptions",t:"Metered-usage underreport",w:"Client reports usage; under-reports to pay less.",h:"Tamper client-side usage counters.",f:"Meter server-side; reconcile authoritative usage."},
+{id:173,c:"Subscriptions",t:"Refund of partial period -> full access",w:"Refund issued but access not reduced.",h:"Refund mid-cycle; verify access change.",f:"Tie access to settled, non-refunded periods."},
+{id:174,c:"Subscriptions",t:"Gift-subscription stacking",w:"Stacked gift codes extend free access excessively.",h:"Redeem multiple gift codes; sum duration.",f:"Define stacking rules; cap total credited time."},
+{id:175,c:"Wallets & P2P",t:"Wallet balance race double-spend",w:"Parallel sends exceed balance.",h:"Issue concurrent transfers.",f:"Atomic debit; ledger invariants; locking."},
+{id:176,c:"Wallets & P2P",t:"Negative transfer pulls funds",w:"Sending negative amount reverses direction.",h:"Send transfer with negative amount.",f:"Validate amount>0; directional checks."},
+{id:177,c:"Wallets & P2P",t:"Self-transfer loop bonus",w:"Transfer bonuses earned by self-loops.",h:"Transfer between own/linked accounts.",f:"Detect self/linked transfers; exclude from rewards."},
+{id:178,c:"Wallets & P2P",t:"Top-up reversal after spend",w:"Reverse a top-up after spending the funds.",h:"Spend funds then reverse the funding source.",f:"Hold until funding clears; clawback logic."},
+{id:179,c:"Wallets & P2P",t:"Pending vs available balance confusion",w:"Spend pending (uncleared) funds.",h:"Spend against pending deposits.",f:"Separate available vs pending; spend available only."},
+{id:180,c:"Wallets & P2P",t:"Ledger non-atomic debit/credit",w:"Debit succeeds, credit fails -> money created/lost.",h:"Force failure between legs of a transfer.",f:"Double-entry atomic transaction; reconcile."},
+{id:181,c:"Wallets & P2P",t:"Recipient enumeration via transfer",w:"Probe valid accounts by transfer responses.",h:"Send micro-transfers to probe accounts.",f:"Uniform responses; rate limit; confirmations."},
+{id:182,c:"Wallets & P2P",t:"Currency mismatch wallet credit",w:"Credit in wrong currency at par.",h:"Fund/withdraw across currencies at 1:1.",f:"Per-currency wallets; explicit conversion."},
+
+{id:183,c:"Payouts",t:"Payout destination tampering",w:"Redirect payout to attacker account.",h:"Change bank/account ID on payout request.",f:"Verify ownership; confirm destination changes."},
+{id:184,c:"Payouts",t:"Negative/oversized payout",w:"Payout exceeds available or is negative.",h:"Request payout > balance or negative.",f:"Clamp to available; validate >0."},
+{id:185,c:"Payouts",t:"Payout before funds clear",w:"Withdraw against uncleared deposits.",h:"Payout immediately after a reversible deposit.",f:"Hold period; available-balance checks."},
+{id:186,c:"Payouts",t:"Double payout via retry",w:"Retried payout pays twice.",h:"Resubmit payout request/parallel.",f:"Idempotency keys; dedupe."},
+{id:187,c:"Payouts",t:"Bank-detail change without re-verify",w:"Change payout bank then immediately withdraw.",h:"Change details and payout in one window.",f:"Cooldown + re-verification after detail changes."},
+{id:188,c:"Payouts",t:"Threshold-based review bypass",w:"Split payouts under review threshold.",h:"Issue many sub-threshold payouts.",f:"Aggregate velocity; cumulative thresholds."},
+{id:189,c:"Payouts",t:"Currency conversion gain on payout",w:"Payout FX yields more than balance.",h:"Payout across currencies at favorable rate.",f:"Convert with disclosed rate+fees; no net gain."},
+{id:190,c:"Payouts",t:"Payout of disputed/refunded funds",w:"Withdraw funds already charged back.",h:"Payout after a dispute is filed.",f:"Reserve disputed funds; block payout."},
+{id:191,c:"Fraud & Limits",t:"Velocity-limit bypass via parallelism",w:"Concurrent ops each pass per-request limit.",h:"Fire many ops at once under the limit.",f:"Atomic cumulative limit accounting."},
+{id:192,c:"Fraud & Limits",t:"Limit reset via timezone/locale",w:"Daily limit resets exploited across TZ.",h:"Shift locale/TZ to reset windows early.",f:"Server-fixed UTC windows for limits."},
+{id:193,c:"Fraud & Limits",t:"Per-card limit vs per-account gap",w:"Limits enforced one dimension, not the other.",h:"Spread spend across cards/accounts.",f:"Limit across all linked dimensions."},
+{id:194,c:"Fraud & Limits",t:"Geo/IP-based pricing bypass",w:"Spoof location for cheaper region pricing.",h:"Change IP/geo headers; check price.",f:"Verify region via multiple signals; bind to payment."},
+{id:195,c:"Fraud & Limits",t:"New-account incentive farming",w:"Signup bonuses farmed at scale.",h:"Create many accounts/devices for bonuses.",f:"Identity/device/instrument linkage; velocity."},
+{id:196,c:"Fraud & Limits",t:"Chargeback-then-rebuy loop",w:"Abuse chargebacks while keeping goods/credits.",h:"Pattern of dispute + repurchase.",f:"Risk scoring; block abusers; reconcile disputes."},
+{id:197,c:"Fraud & Limits",t:"AVS/CVV check disabled",w:"Address/CVV verification off enables stolen-card use.",h:"Check whether AVS/CVV results are enforced.",f:"Enforce AVS/CVV per risk policy."},
+{id:198,c:"Fraud & Limits",t:"Refund as money-laundering rail",w:"Funnel funds via purchases+refunds.",h:"Audit refund flows for laundering patterns.",f:"Refund to original tender only; monitoring."},
+{id:199,c:"Configuration",t:"Test keys live in production",w:"Sandbox credentials accepted in prod.",h:"Use provider test keys/cards on prod.",f:"Assert live mode; segregate environments."},
+{id:200,c:"Configuration",t:"Debug/verbose errors leak payment internals",w:"Stack traces expose keys/logic.",h:"Trigger errors; inspect responses.",f:"Generic errors; no secrets in output."},
+{id:201,c:"Configuration",t:"Secrets in client bundle/repo",w:"API secret keys committed or shipped to client.",h:"Search bundles/history for keys.",f:"Server-only secrets; rotate exposed keys."},
+{id:202,c:"Configuration",t:"Permissive CORS on payment API",w:"Any origin can call money endpoints.",h:"Test cross-origin requests with credentials.",f:"Strict origin allowlist; no wildcard with creds."},
+{id:203,c:"Configuration",t:"Default/weak webhook secret",w:"Guessable shared secret.",h:"Test default/empty secrets.",f:"Strong random secrets; rotation."},
+{id:204,c:"Configuration",t:"Unrestricted refund/admin API in prod",w:"Internal endpoints reachable externally.",h:"Probe for admin/refund endpoints.",f:"Network isolation; authn/z; allowlists."},
+{id:205,c:"API Security",t:"Mass assignment of amount/status",w:"Extra fields override server values.",h:"Add amount/status/paid fields to requests.",f:"Whitelist bindable fields; ignore extras."},
+{id:206,c:"API Security",t:"Parameter pollution on amount",w:"Duplicate amount params; server picks the wrong one.",h:"Send amount twice with different values.",f:"Reject duplicates; canonical parsing."},
+{id:207,c:"API Security",t:"Type juggling on amount",w:"'0'==false / array tricks bypass checks.",h:"Send arrays/objects/bools where number expected.",f:"Strict type validation."},
+{id:208,c:"API Security",t:"SQL/NoSQL injection in payment fields",w:"Injection in order/amount/coupon params.",h:"Inject payloads into payment parameters.",f:"Parameterized queries; input validation."},
+{id:209,c:"API Security",t:"GraphQL batching to bypass rate limits",w:"Many mutations in one request evade throttling.",h:"Batch payment mutations in one query.",f:"Cost analysis; limit operations per request."},
+{id:210,c:"API Security",t:"Missing rate limit on charge/redeem",w:"Unlimited attempts enable brute/abuse.",h:"Hammer charge/redeem endpoints.",f:"Per-identity rate limits; lockouts."},
+{id:211,c:"API Security",t:"Verb tampering on money endpoint",w:"GET performs a state change.",h:"Switch methods (GET/PUT) on pay endpoints.",f:"Enforce method+CSRF; no state change on GET."},
+{id:212,c:"API Security",t:"Content-type confusion bypass",w:"Switching content-type evades validation/CSRF.",h:"Send form vs JSON vs multipart variants.",f:"Strict content-type handling; consistent validation."},
+
+{id:213,c:"Crypto Payments",t:"Zero-confirmation acceptance",w:"Credited before chain confirmation; reversible.",h:"Pay then double-spend before confirmation.",f:"Require N confirmations by amount/risk."},
+{id:214,c:"Crypto Payments",t:"Decimal/wei scaling error",w:"18-decimal token treated as fewer decimals.",h:"Send amounts using full native precision.",f:"Use asset-native decimals; base-unit integers."},
+{id:215,c:"Crypto Payments",t:"Underpayment threshold rounding",w:"Slight underpayment accepted as full.",h:"Pay just below the required amount.",f:"Exact/over-payment required; tolerance audited."},
+{id:216,c:"Crypto Payments",t:"Overpayment refund abuse",w:"Refund of overpayment exceeds net deposit.",h:"Overpay then claim full refund.",f:"Refund only verified net of fees."},
+{id:217,c:"Crypto Payments",t:"Address reuse / payment mismatch",w:"Shared deposit address misattributes funds.",h:"Pay to a reused address; check attribution.",f:"Unique address/memo per invoice."},
+{id:218,c:"Crypto Payments",t:"Memo/destination-tag omission",w:"Missing tag credits wrong account.",h:"Omit required memo/tag on deposit.",f:"Enforce memo/tag; quarantine unidentified deposits."},
+{id:219,c:"Crypto Payments",t:"Reorg/double-spend crediting",w:"Chain reorg reverses a credited deposit.",h:"Simulate reorg scenarios on testnet.",f:"Confirmation depth by value; reorg handling."},
+{id:220,c:"Crypto Payments",t:"Fake token contract acceptance",w:"Spoofed token with same symbol accepted.",h:"Send a look-alike token to deposit.",f:"Allowlist contract addresses, not symbols."},
+{id:221,c:"Crypto Payments",t:"Gas/fee deduction accounting error",w:"Network fee mis-accounted, creating value.",h:"Deposit/withdraw checking fee accounting.",f:"Account fees precisely in the ledger."},
+{id:222,c:"Crypto Payments",t:"Withdrawal address allowlist bypass",w:"Withdraw to non-allowlisted address.",h:"Attempt withdrawal to new address sans cooldown.",f:"Allowlist + cooldown + step-up auth."},
+{id:223,c:"Trading Platforms",t:"Negative balance via leverage/fees",w:"Position fees drive balance negative, exploited.",h:"Open positions probing for negative balance states.",f:"Real-time margin checks; auto-liquidation."},
+{id:224,c:"Trading Platforms",t:"Stale price/oracle exploitation",w:"Trade on outdated quote for guaranteed profit.",h:"Trade during quote-staleness windows.",f:"Fresh price checks; reject stale; circuit breakers."},
+{id:225,c:"Trading Platforms",t:"Self-trade / wash-trade rewards",w:"Trade with self to farm fee rebates/volume.",h:"Match own buy/sell orders.",f:"Detect self-match; exclude from incentives."},
+{id:226,c:"Trading Platforms",t:"Order race / partial-fill accounting",w:"Concurrent fills mis-account balance.",h:"Submit overlapping orders; reconcile fills.",f:"Atomic order/ledger updates."},
+{id:227,c:"Trading Platforms",t:"Fee rounding in maker/taker",w:"Per-trade fee rounding favors attacker.",h:"Many micro-trades exploiting rounding.",f:"Integer fee math; minimum fee."},
+{id:228,c:"Trading Platforms",t:"Deposit credited before clearing",w:"Trade with uncleared deposit then reverse.",h:"Trade on pending deposit; reverse funding.",f:"Trade only cleared funds; holds."},
+{id:229,c:"Trading Platforms",t:"Withdrawal during open orders",w:"Withdraw funds reserved by open orders.",h:"Withdraw while orders hold the balance.",f:"Reserve margin/locked funds; available-only withdraw."},
+{id:230,c:"Trading Platforms",t:"Rounding in P&L settlement",w:"Settlement rounding creates net gain.",h:"Close positions probing settlement rounding.",f:"Deterministic settlement math; reconcile."},
+{id:231,c:"Trading Platforms",t:"Cross-margin isolation break",w:"Losses in one account hit another's collateral.",h:"Test margin isolation across accounts.",f:"Strict per-account margin isolation."},
+{id:232,c:"Trading Platforms",t:"Fee-rebate referral farming",w:"Self-referral loops to farm rebates.",h:"Refer linked accounts; trade for rebates.",f:"Detect linkage; exclude self-referrals."},
+{id:233,c:"Mobile IAP",t:"Receipt forgery / unsigned receipt",w:"Fake purchase receipt unlocks content.",h:"Submit forged/unverified receipts to server.",f:"Verify receipts with the store server-side."},
+{id:234,c:"Mobile IAP",t:"Receipt replay across accounts",w:"One receipt entitles many accounts.",h:"Reuse a receipt on multiple accounts.",f:"Bind receipt to one account; single-use."},
+{id:235,c:"Mobile IAP",t:"Sandbox receipt in production",w:"Test-store receipt accepted as real.",h:"Submit sandbox receipts to prod verify.",f:"Reject sandbox env in production validation."},
+{id:236,c:"Mobile IAP",t:"Local entitlement only",w:"Entitlement stored on device, editable.",h:"Tamper local purchase flags.",f:"Server-side entitlement source of truth."},
+{id:237,c:"Mobile IAP",t:"Refunded IAP keeps entitlement",w:"Store refund not reflected; access remains.",h:"Refund via store; verify revocation.",f:"Handle refund notifications; revoke entitlement."},
+{id:238,c:"Mobile IAP",t:"Subscription receipt expiry ignored",w:"Expired sub still grants access.",h:"Use a lapsed subscription receipt.",f:"Check expiry/renewal status server-side."},
+{id:239,c:"Marketplace & Split",t:"Split-payment rounding skim",w:"Platform/seller split rounding loses/creates cents.",h:"Orders with non-divisible splits; sum parts.",f:"Largest-remainder split; parts sum to total."},
+{id:240,c:"Marketplace & Split",t:"Seller payout before buyer settlement",w:"Payout seller before buyer funds clear.",h:"Trigger payout pre-settlement.",f:"Release payouts only post-settlement."},
+{id:241,c:"Marketplace & Split",t:"Commission/fee tampering",w:"Client alters platform commission to 0.",h:"Edit fee/commission fields.",f:"Server computes commission; ignore client."},
+{id:242,c:"Marketplace & Split",t:"Buyer-seller collusion refund",w:"Refund buyer while seller keeps payout.",h:"Refund post-payout without clawback.",f:"Clawback payouts on refund; reserve."},
+{id:243,c:"Marketplace & Split",t:"Escrow release without delivery",w:"Funds released without confirmed delivery.",h:"Trigger release sans delivery proof.",f:"Require delivery/acceptance before release."},
+{id:244,c:"Marketplace & Split",t:"Split to attacker-controlled recipient",w:"Add an extra payee to the split.",h:"Inject extra split recipients.",f:"Authorize and validate all split recipients."},
+{id:245,c:"Fees & Tax",t:"Surcharge/convenience-fee tampering",w:"Client sets surcharge to 0/negative.",h:"Edit surcharge field.",f:"Server computes surcharge; ignore client."},
+{id:246,c:"Fees & Tax",t:"Tax-exempt flag abuse",w:"Client marks order tax-exempt.",h:"Set tax_exempt=true in request.",f:"Validate exemption against verified status."},
+{id:247,c:"Fees & Tax",t:"Tax jurisdiction spoofing",w:"Fake address to a zero-tax region.",h:"Set billing/shipping to low-tax region.",f:"Validate address; compute tax server-side."},
+{id:248,c:"Fees & Tax",t:"Fee applied before vs after discount",w:"Sequence chosen to minimize fees/tax.",h:"Toggle fee/discount/tax order.",f:"Fix legally-correct calculation order."},
+{id:249,c:"Fees & Tax",t:"Inclusive vs exclusive tax confusion",w:"Tax-inclusive price treated as exclusive (undercharge).",h:"Switch inclusive/exclusive flags.",f:"Authoritative tax mode server-side."},
+{id:250,c:"Disclosure & Logging",t:"Transaction enumeration via IDs",w:"Sequential txn IDs reveal others' data.",h:"Increment/decrement txn IDs.",f:"Random IDs; authorize each access."},
+{id:251,c:"Disclosure & Logging",t:"Sensitive data in logs/analytics",w:"PAN/CVV/tokens sent to logs or 3rd-party analytics.",h:"Inspect log/analytics payloads.",f:"Redact sensitive fields; scrub pipelines."},
+{id:252,c:"Disclosure & Logging",t:"Error-message info leak",w:"Errors reveal whether card/account exists.",h:"Compare messages for valid vs invalid inputs.",f:"Uniform, generic error responses."},
+{id:253,c:"Disclosure & Logging",t:"Receipt/invoice IDOR",w:"Access others' receipts/invoices by ID/URL.",h:"Guess/enumerate invoice URLs.",f:"Authorize document access; signed, expiring URLs."},
+{id:254,c:"Disclosure & Logging",t:"Timing oracle on validation",w:"Response timing distinguishes valid codes/cards.",h:"Measure timing across inputs.",f:"Constant-time paths; uniform responses."},
+{id:255,c:"Disclosure & Logging",t:"Cache leakage of payment pages",w:"Receipts/balances cached by CDN/browser.",h:"Check cache headers on sensitive responses.",f:"no-store/no-cache; private; vary on auth."},
+];
+buildFilters();render();
+</script>
+</body>
+</html>
