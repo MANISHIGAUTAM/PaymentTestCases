@@ -38,6 +38,11 @@
   footer{color:var(--muted);font-size:13px;border-top:1px solid var(--border);
     margin:40px 32px 0;padding:18px 0;}
   mark{background:#3a4a1f;color:#e6f5c0;padding:0 2px;border-radius:3px;}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:12px;overflow-x:auto;font-size:12.5px;margin:6px 0 2px;}
+  pre code{font-family:"SF Mono",Menlo,Consolas,monospace;white-space:pre;}
+  pre.out-bad{border-left:3px solid var(--bad);}
+  pre.out-good{border-left:3px solid var(--good);}
+  .label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:12px 0 2px;}
   @media(max-width:700px){header.hero,.controls,#count,main,.legal,footer{padding-left:16px;padding-right:16px;margin-left:0;margin-right:0;}.row{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -77,15 +82,20 @@ function render(){
   var out=TC.filter(function(t){
     if(activeCat!=='All'&&t.c!==activeCat)return false;
     if(!q)return true;
-    return (t.t+' '+t.c+' '+t.w+' '+t.h+' '+t.f).toLowerCase().indexOf(q)>=0;
+    return (t.t+' '+t.c+' '+t.w+' '+t.h+' '+t.f+' '+(t.ex||'')+' '+(t.curl||'')+' '+(t.vuln||'')+' '+(t.fixcode||'')).toLowerCase().indexOf(q)>=0;
   });
   document.getElementById('count').textContent=out.length+' of '+TC.length+' test cases shown';
   var html=out.map(function(t){
-    return '<div class="card"><h3><span class="num">#'+t.id+'</span> '+hl(t.t,q)+
+    var s='<div class="card"><h3><span class="num">#'+t.id+'</span> '+hl(t.t,q)+
       ' <span class="cat">'+esc(t.c)+'</span></h3>'+
       '<div class="row"><b>Where/Why</b><span>'+hl(t.w,q)+'</span></div>'+
       '<div class="row"><b>How to test</b><span>'+hl(t.h,q)+'</span></div>'+
-      '<div class="row"><b>Fix</b><span class="fix">'+hl(t.f,q)+'</span></div></div>';
+      '<div class="row"><b>Fix</b><span class="fix">'+hl(t.f,q)+'</span></div>';
+    if(t.ex) s+='<div class="label">Concrete example / why it breaks</div><pre><code>'+hl(t.ex,q)+'</code></pre>';
+    if(t.curl) s+='<div class="label">Sample request</div><pre><code>'+hl(t.curl,q)+'</code></pre>';
+    if(t.vuln) s+='<div class="label">Vulnerable code</div><pre class="out-bad"><code>'+hl(t.vuln,q)+'</code></pre>';
+    if(t.fixcode) s+='<div class="label">Fixed code</div><pre class="out-good"><code>'+hl(t.fixcode,q)+'</code></pre>';
+    return s+'</div>';
   }).join('');
   document.getElementById('list').innerHTML=html||'<div class="card">No matches.</div>';
 }
@@ -355,6 +365,426 @@ var TC=[
 {id:253,c:"Disclosure & Logging",t:"Receipt/invoice IDOR",w:"Access others' receipts/invoices by ID/URL.",h:"Guess/enumerate invoice URLs.",f:"Authorize document access; signed, expiring URLs."},
 {id:254,c:"Disclosure & Logging",t:"Timing oracle on validation",w:"Response timing distinguishes valid codes/cards.",h:"Measure timing across inputs.",f:"Constant-time paths; uniform responses."},
 {id:255,c:"Disclosure & Logging",t:"Cache leakage of payment pages",w:"Receipts/balances cached by CDN/browser.",h:"Check cache headers on sensitive responses.",f:"no-store/no-cache; private; vary on auth."},
+// === detailed deep-dive entries appended below ===
+
+
+{id:256,c:"Money Math",t:"IEEE-754 surprising equality (precision collapse)",
+w:"JS/most languages store money in 64-bit doubles. Beyond 2^53 integers silently collide and fractional sums drift, so equality checks lie.",
+h:"In a console/repl run the example values below; then send an amount near 9007199254740992 minor units and add 1 — confirm the cent disappears.",
+f:"Never hold money in float/double. Use integer minor units (BigInt) or a decimal library; compare with a tolerance only for display, never for ledger equality.",
+ex:`> 0.1 + 0.2
+0.30000000000000004
+> (0.1 + 0.2) === 0.3
+false
+
+// Past 2^53 (=9007199254740992) integers can no longer be distinguished:
+> 9007199254740992 === 9007199254740993
+true                 // a 1-unit (1 cent) difference simply vanishes
+> 9007199254740992 + 1
+9007199254740992     // the +1 cent is lost
+
+// Tiny magnitudes also fail naive equality:
+> 0.3 - 0.2 === 0.1
+false                // 0.09999999999999998 !== 0.1`,
+vuln:`// charges and ledger kept as floats
+let balance = 0;
+for (let i = 0; i < 10; i++) balance += 0.1; // expect 1.00
+console.log(balance);            // 0.9999999999999999
+if (balance === 1.0) settle();   // never runs -> stuck funds`,
+fixcode:`// money as integer minor units (cents) via BigInt
+let balanceCents = 0n;
+for (let i = 0; i < 10; i++) balanceCents += 10n; // 10 cents each
+console.log(balanceCents);       // 100n  (exactly $1.00)
+if (balanceCents === 100n) settle();`},
+{id:257,c:"Money Math",t:"toFixed() rounding lies on .005 values",
+w:"Number.toFixed and naive rounding inherit the underlying float error, so 'round half up' silently rounds the wrong way for many real prices.",
+h:"Evaluate the examples; then push prices ending in .005/.015/.125 through the charge endpoint and compare the captured amount to the expected rounded value.",
+f:"Round on integers/decimals with an explicit, tested rounding mode; never rely on toFixed for money.",
+ex:`> (1.005).toFixed(2)
+"1.00"     // expected "1.01" -- 1.005 is really 1.00499999999999989
+> (0.615).toFixed(2)
+"0.61"     // expected "0.62"
+> (8.575).toFixed(2)
+"8.57"     // expected "8.58"
+> Math.round(0.5)        // 1   (half-up)
+> Math.round(2.5)        // 3
+> Math.round(1.005*100)/100
+1           // expected 1.01`,
+vuln:`function priceWithTax(p){ return Number((p * 1.0).toFixed(2)); }
+priceWithTax(1.005); // 1.00 -> undercharge`,
+fixcode:`// work in integer cents, round explicitly (half-up) on integers
+function roundHalfUpCents(cents){ return Math.floor(cents + 0.5); }
+function priceCents(dollars){ return roundHalfUpCents(Math.round(dollars*1000)/10); }
+// better: receive amount already in integer cents from the client`},
+{id:258,c:"Money Math",t:"Amount coercion: 1e3, 0x10, '10.00abc', arrays",
+w:"Loose parsing (Number(), parseFloat, ==) accepts forms that bypass min/max and type checks, changing the real charged value.",
+h:"Send amount as '1e3', '0x10', '  10 ', '10.00abc', [10], {valueOf:()=>1}, true; observe what gets charged.",
+f:"Validate against a strict numeric grammar (or require integer minor units) before any arithmetic; reject anything non-canonical.",
+ex:`> Number("1e3")        // 1000
+> Number("0x10")       // 16
+> parseFloat("10.00abc") // 10  (trailing junk ignored)
+> Number("  10 ")      // 10   (whitespace trimmed)
+> Number([10])         // 10   (array coerced)
+> Number("")           // 0    (empty -> zero!)
+> 0 == false           // true
+> "0" == false         // true`,
+curl:`# all of these may be accepted as "10" or bypass an amount>0 check
+curl -s -X POST https://localhost/charge -H 'Content-Type: application/json' \\
+  -d '{"amount":"1e3","currency":"USD"}'
+curl -s -X POST https://localhost/charge -H 'Content-Type: application/json' \\
+  -d '{"amount":"","currency":"USD"}'   # -> coerced to 0 -> free`,
+vuln:`const amt = Number(req.body.amount);
+if (amt > 0) charge(amt); // "" -> 0 skips; "1e3" -> 1000 unexpected`,
+fixcode:`const raw = req.body.amount;
+if (!/^[0-9]+$/.test(String(raw))) return res.status(400).end(); // integer cents only
+const cents = BigInt(raw);
+if (cents <= 0n || cents > 100000000n) return res.status(400).end();
+charge(cents);`},
+{id:259,c:"Money Math",t:"Accumulation drift across many line items",
+w:"Summing per-line float totals accumulates error; a large cart can be off by cents vs the true integer sum.",
+h:"Build a cart of ~1000 items priced 0.10 and compare the API total to 100.00 exactly.",
+f:"Sum integer minor units; convert to display units once at the end.",
+ex:`let total = 0;
+for (let i=0;i<1000;i++) total += 0.10;
+console.log(total);   // 99.9999999999986  (not 100)
+console.log(total === 100); // false`,
+fixcode:`let totalCents = 0;
+for (let i=0;i<1000;i++) totalCents += 10;
+console.log(totalCents/100); // 100`},
+{id:260,c:"Money Math",t:"Half-up vs banker's rounding mismatch between services",
+w:"Two services rounding .5 differently disagree by a cent; reconciliation gaps are skimmable and break double-entry.",
+h:"Send a set of amounts ending in .5 minor-sub-units through two services; diff their outputs.",
+f:"Pick ONE documented rounding mode (e.g. round-half-to-even) and use it everywhere; add reconciliation tests.",
+ex:`// Banker's (half-to-even) vs half-up on x.xx5 values:
+2.005 -> half-up 2.01 | bankers 2.00
+2.015 -> half-up 2.02 | bankers 2.02
+2.025 -> half-up 2.03 | bankers 2.02
+2.035 -> half-up 2.04 | bankers 2.04
+// Service A (half-up) and Service B (bankers) disagree on 2.005 and 2.025`},
+{id:261,c:"Money Math",t:"Float vs integer-cents: full vulnerable/fixed charge handler",
+w:"End-to-end example showing why a float handler over- or under-charges and how the integer version is exact.",
+h:"POST fractional unit prices and quantities; compare captured amount to hand-computed integer cents.",
+f:"Accept integer minor units, validate, do integer arithmetic, round once.",
+vuln:`app.post('/checkout', (req,res)=>{
+  const { price, qty, taxRate } = req.body;      // floats
+  const subtotal = price * qty;                   // float drift
+  const tax = subtotal * taxRate;                 // more drift
+  const total = Number((subtotal + tax).toFixed(2)); // toFixed lies
+  charge(total);                                  // wrong by cents
+});`,
+fixcode:`app.post('/checkout', (req,res)=>{
+  const priceCents = BigInt(req.body.priceCents); // integer minor units
+  const qty = BigInt(req.body.qty);
+  if (qty < 1n || priceCents < 0n) return res.status(400).end();
+  const subtotal = priceCents * qty;              // exact
+  const taxBp = BigInt(req.body.taxBasisPoints);  // e.g. 875 = 8.75%
+  const tax = (subtotal * taxBp + 5000n) / 10000n;// round half-up, integer
+  charge(subtotal + tax);                         // exact cents
+});`},
+
+{id:262,c:"Intl Payments",t:"FX round-trip value creation (concrete)",
+w:"Float conversion with asymmetric rounding means converting out and back nets a gain/loss; looped, it mints money.",
+h:"Convert 100 USD->EUR, then the result EUR->USD, and compare to 100. Repeat 1000x to amplify.",
+f:"Convert through a base currency, round once into the destination minor unit, persist the exact rate+timestamp, and reconcile.",
+ex:`rate USD->EUR = 0.9234, EUR->USD = 1/0.9234 = 1.082955...
+100 USD -> 92.34 EUR (rounded)
+92.34 EUR -> 100.0001... USD -> stored 100.01 after round-up
+net +0.01 per cycle, free money over many cycles`,
+curl:`curl -s -X POST https://localhost/fx/convert -H 'Content-Type: application/json' \\
+  -d '{"amount":100,"from":"USD","to":"EUR"}'        # -> 92.34
+curl -s -X POST https://localhost/fx/convert -H 'Content-Type: application/json' \\
+  -d '{"amount":92.34,"from":"EUR","to":"USD"}'      # -> 100.01 (>100)`,
+vuln:`function convert(amt, from, to){
+  const usd = amt / RATES[from];   // float
+  return Number((usd * RATES[to]).toFixed(2)); // round each hop
+}`,
+fixcode:`// integer minor units; round once; record the quote you actually used
+function convert(minorFrom, from, to){
+  const usdMicros = (BigInt(minorFrom) * 1000000n) / rateMicros(from);
+  const destMinor = (usdMicros * rateMicros(to)) / 1000000n / 1000000n;
+  return { minor: destMinor, rateId: currentQuoteId(from,to) };
+}`},
+{id:263,c:"Intl Payments",t:"Mixed-currency cart summed as one number",
+w:"Items priced in different currencies are added numerically (10 USD + 1000 JPY = 1010) with no conversion.",
+h:"Add a USD item and a JPY item to one cart; inspect the total and the currency it claims.",
+f:"Normalize every line to the cart's settlement currency at add-time; store currency with each amount.",
+ex:`cart = [ {amount:10, ccy:"USD"}, {amount:1000, ccy:"JPY"} ]
+buggy total = 10 + 1000 = 1010  (currency? undefined)
+correct: 1000 JPY ~= 6.40 USD -> total ~= 16.40 USD`,
+curl:`curl -s -X POST https://localhost/cart/add -d '{"sku":"A","amount":10,"ccy":"USD"}'
+curl -s -X POST https://localhost/cart/add -d '{"sku":"B","amount":1000,"ccy":"JPY"}'
+curl -s https://localhost/cart/total   # check the (mis)summed value`},
+{id:264,c:"Intl Payments",t:"Currency precision: JPY(0) / KWD(3) assumed to be 2",
+w:"Hardcoded 2-decimal logic mis-scales 0- and 3-decimal currencies: 1000 JPY may be read as 10.00, or KWD sub-units dropped.",
+h:"Charge amount=1000 currency=JPY and amount=1.234 currency=KWD; verify the captured minor units.",
+f:"Use an ISO 4217 exponent table; never assume 2 decimals.",
+ex:`USD: 2 decimals  -> 1000 minor = $10.00
+JPY: 0 decimals  -> 1000 minor = ¥1000 (NOT ¥10.00)
+KWD: 3 decimals  -> 1234 minor = 1.234 KWD
+bug: amount/100 everywhere -> JPY shown as 10.00, KWD loses a digit`,
+curl:`curl -s -X POST https://localhost/fx/charge -H 'Content-Type: application/json' \\
+  -d '{"amount":1.005,"currency":"JPY"}'   # JPY has no sub-unit at all
+curl -s -X POST https://localhost/fx/charge -H 'Content-Type: application/json' \\
+  -d '{"amount":1.2345,"currency":"KWD"}'  # 3 decimals; 4th must be rejected`,
+fixcode:`const EXP = { USD:2, EUR:2, JPY:0, KWD:3, BHD:3, BTC:8 };
+function toMinor(amount, ccy){
+  const e = EXP[ccy]; if (e===undefined) throw new Error('bad ccy');
+  const scaled = Math.round(Number(amount) * 10**e);
+  if (Math.abs(amount*10**e - scaled) > 1e-9) throw new Error('too many decimals');
+  return scaled; // integer minor units for that currency
+}`},
+{id:265,c:"Intl Payments",t:"Presentment vs settlement currency swap",
+w:"User sees/approves one currency; merchant settles another at an attacker-favorable or undisclosed rate.",
+h:"Approve a charge shown in USD, then inspect the settlement request to the processor for a different currency/amount.",
+f:"Settlement currency+amount must equal what the user approved; treat any conversion as display-only unless re-consented.",
+ex:`shown: 'You pay $100.00 USD'
+settled: 9,200 JPY at an internal rate -> user disputes; merchant eats it
+or reverse: small presentment, large settlement`},
+{id:266,c:"Intl Payments",t:"Beneficiary / IBAN mismatch & name-check skipped",
+w:"Cross-border transfers route on IBAN/account number while the displayed beneficiary name is never verified (no Confirmation of Payee).",
+h:"Submit a transfer where beneficiary name and IBAN belong to different parties; see if it proceeds.",
+f:"Validate IBAN checksum, run Confirmation-of-Payee / name matching, and surface mismatches before sending.",
+ex:`IBAN checksum (mod-97): valid IBAN % 97 must equal 1
+DE89 3704 0044 0532 0130 00 -> rearrange + convert letters -> mod 97 == 1
+bug: app accepts any 'name' with a valid-format IBAN -> misdirected funds`,
+curl:`curl -s -X POST https://localhost/transfer -H 'Content-Type: application/json' \\
+  -d '{"iban":"DE89370400440532013000","beneficiary":"Totally Real Ltd","amount":50000,"ccy":"EUR"}'`},
+{id:267,c:"Intl Payments",t:"Region/sanctions gate bypassed via client signal",
+w:"Geo/sanctions screening keys off a client-controlled header/param (country, locale, X-Forwarded-For), so it is trivially spoofed.",
+h:"Send the payment with a different country code / spoofed X-Forwarded-For and see if a blocked corridor opens.",
+f:"Determine country server-side from multiple trusted signals (issuing BIN, KYC, network geo); never trust client-supplied country for compliance.",
+ex:`blocked: country in sanctions list
+bypass: set 'X-Forwarded-For' or body {country:'US'} while card BIN is from a blocked region`,
+curl:`curl -s -X POST https://localhost/pay -H 'X-Forwarded-For: 8.8.8.8' \\
+  -H 'Content-Type: application/json' -d '{"country":"US","cardBin":"535522"}'`},
+{id:268,c:"Intl Payments",t:"Cross-border VAT/tax exemption abuse",
+w:"Tax/VAT computed from a client-supplied flag or unverified address (reverse-charge, MOSS, tax_exempt) reduces the charged total.",
+h:"Set tax_exempt=true or a VAT number that is never validated, or a billing country with 0% VAT, and compare totals.",
+f:"Compute tax server-side from a verified address; validate VAT IDs (e.g. VIES) before applying reverse-charge; ignore client tax fields.",
+ex:`buggy: total = net + (taxExempt ? 0 : net*rate)
+attacker sets taxExempt=true -> pays net only
+or sets billingCountry to a 0% jurisdiction while shipping elsewhere`,
+curl:`curl -s -X POST https://localhost/checkout -H 'Content-Type: application/json' \\
+  -d '{"items":[{"sku":"X","priceCents":10000}],"taxExempt":true,"vatId":"XX000"}'`},
+{id:269,c:"Intl Payments",t:"SEPA/ACH mandate reuse & first-vs-recurring",
+w:"A debit mandate authorized for one amount/merchant is reused for larger or repeated pulls; FRST vs RCUR sequence not enforced.",
+h:"Replay a mandate reference with a different amount/creditor; submit RCUR without a prior FRST.",
+f:"Bind mandate to creditor+debtor+limits; enforce sequence; alert on amount deviations and reuse.",
+ex:`mandate M123 authorized: <= 20.00 EUR, creditor=Acme
+abuse: submit collection on M123 for 200.00 EUR, or creditor=Attacker`},
+{id:270,c:"Intl Payments",t:"DCC (dynamic currency conversion) markup tampering",
+w:"Client chooses 'pay in home currency'; if the conversion/markup is client-influenced, the merchant receipt or rate can be skewed.",
+h:"Toggle DCC client-side and vary the offered rate; confirm the merchant settlement amount is unaffected.",
+f:"Server is authoritative on settlement; DCC display only; lock the rate server-side and disclose the markup.",
+ex:`offered: 'Pay 95.00 GBP instead of 120.00 USD'
+bug: client posts its own dccRate -> merchant nets less than 120 USD`,
+curl:`curl -s -X POST https://localhost/pay -H 'Content-Type: application/json' \\
+  -d '{"amount":12000,"ccy":"USD","dcc":{"ccy":"GBP","rate":0.5}}'  # forged rate`},
+{id:271,c:"Intl Payments",t:"Refund issued in a different currency for FX gain",
+w:"Refund recomputed at the current rate or in a stronger currency returns more value than was paid.",
+h:"Pay in a weak currency, then request the refund in a strong currency or after a favorable rate move.",
+f:"Refund the exact original captured amount and currency; no FX on refunds.",
+ex:`paid: 1,000,000 IDR (~64 USD) on day 1
+refund requested in USD on day 30 after IDR weakens -> 70 USD returned
+net +6 USD per cycle`},
+{id:272,c:"Intl Payments",t:"Interchange/surcharge mis-applied cross-border",
+w:"Surcharge or convenience fee is client-set or omitted for international cards, undercharging the customer or overpaying rewards.",
+h:"Send an international card BIN with surcharge=0 (or negative) and verify the captured total.",
+f:"Compute surcharge server-side from card type/region per scheme rules; never accept it from the client.",
+ex:`domestic card: +0% ; intl/credit: +2.5% surcharge (server rule)
+bug: client posts surcharge=0 for an intl card -> merchant absorbs the fee`},
+
+{id:273,c:"Webhooks",t:"Forged payment webhook (no/!verified HMAC) — full walkthrough",
+w:"If the provider signature is not verified over the raw body with a constant-time compare, anyone who knows the URL can mark orders paid.",
+h:"POST a fake success with no signature, then a wrong one; a secure endpoint returns 401, a vulnerable one flips the order to paid.",
+f:"Recompute HMAC-SHA256 over the exact raw bytes, compare in constant time, dedupe by event id, and re-fetch the object from the provider before acting.",
+curl:`# 1) no signature at all
+curl -s -X POST https://localhost/webhooks/payment -H 'Content-Type: application/json' \\
+  -d '{"id":"evt_1","orderId":1001,"status":"paid","amount":99999}'
+
+# 2) correctly signed (what the provider actually does)
+BODY='{"id":"evt_1","orderId":1001,"status":"paid","amount":99999}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WHSEC" | sed 's/^.* //')
+curl -s -X POST https://localhost/webhooks/payment \\
+  -H 'Content-Type: application/json' -H "X-Signature: $SIG" -d "$BODY"`,
+vuln:`app.post('/webhooks/payment', (req,res)=>{
+  const e = req.body;                 // signature ignored
+  orders[e.orderId].status = e.status; // trusts attacker
+  res.json({ok:true});
+});`,
+fixcode:`app.post('/webhooks/payment',
+  express.raw({type:'application/json'}), (req,res)=>{
+  const sig = req.get('X-Signature') || '';
+  const expected = crypto.createHmac('sha256', WHSEC)
+                         .update(req.body).digest('hex'); // raw bytes
+  const a=Buffer.from(sig), b=Buffer.from(expected);
+  if (a.length!==b.length || !crypto.timingSafeEqual(a,b))
+    return res.status(401).end();
+  const e = JSON.parse(req.body);
+  if (seen.has(e.id)) return res.json({ok:true}); // replay dedupe
+  seen.add(e.id);
+  const truth = provider.retrieve(e.id);          // re-fetch authoritative
+  if (truth.status==='paid' && orders[e.orderId].status==='created')
+    orders[e.orderId].status='paid';
+  res.json({ok:true});
+});`},
+{id:274,c:"Authorization",t:"IDOR on invoice — concrete enumeration",
+w:"Sequential/guessable IDs plus a missing ownership check leak other customers' invoices, amounts, and PII.",
+h:"Authenticate as your user, then decrement/increment the invoice id; if you receive another owner's data it is an IDOR.",
+f:"Authorize each object access against the caller; use opaque IDs as defense-in-depth.",
+curl:`# your own invoice
+curl -s https://localhost/invoices/4002 -H 'Authorization: Bearer USER_A'
+# someone else's, same token
+curl -s https://localhost/invoices/4001 -H 'Authorization: Bearer USER_A'
+# secure: 403; vulnerable: returns owner=bob's invoice`,
+vuln:`app.get('/invoices/:id',(req,res)=>{
+  res.json(db.invoices[req.params.id]); // no owner check
+});`,
+fixcode:`app.get('/invoices/:id',(req,res)=>{
+  const inv = db.invoices[req.params.id];
+  if (!inv) return res.status(404).end();
+  if (inv.ownerId !== req.user.id) return res.status(403).end();
+  res.json(inv);
+});`},
+{id:275,c:"Race & Concurrency",t:"Coupon double-spend via parallel requests — concrete",
+w:"A check-then-update with any I/O between the read and the write lets concurrent requests all pass the 'used?' check.",
+h:"Fire ~30 identical redeem requests in parallel and count how many succeed beyond the intended one.",
+f:"Make redemption atomic: conditional UPDATE ... WHERE used=false, a unique (coupon,user) constraint, or SELECT ... FOR UPDATE.",
+curl:`for i in $(seq 1 30); do
+  curl -s -X POST https://localhost/coupon/redeem \\
+    -H 'Content-Type: application/json' \\
+    -d '{"code":"SAVE10","user":"alice"}' &
+done; wait
+# vulnerable: many succeed, balance credited repeatedly`,
+vuln:`async function redeem(code,user){
+  const c = await db.get(code);
+  if (c.used) throw 'used';
+  await sleep(20);            // network/db gap = race window
+  c.used = true; await db.put(c);
+  await credit(user, 1000);
+}`,
+fixcode:`async function redeem(code,user){
+  // atomic: only one update can flip used=false -> true
+  const n = await db.run(
+    "UPDATE coupons SET used=true WHERE code=? AND used=false", [code]);
+  if (n.changes !== 1) throw 'already used';
+  await credit(user, 1000);
+}`},
+{id:276,c:"Authentication",t:"JWT alg=none / weak-secret on payment API — concrete",
+w:"If the API accepts alg:none or verifies HS256 with a guessable secret, an attacker forges a token to act as any payer.",
+h:"Take a valid token, set header alg to none and strip the signature, or brute a weak HMAC secret, then call a money endpoint.",
+f:"Pin the expected algorithm, reject none, verify with a strong asymmetric key or high-entropy secret, and validate aud/iss/exp.",
+ex:`header: {"alg":"none","typ":"JWT"}
+payload: {"sub":"victim","scope":"payments:write"}
+token = base64url(header) + "." + base64url(payload) + "."   // empty sig`,
+curl:`curl -s -X POST https://localhost/transfer \\
+  -H "Authorization: Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiJ2aWN0aW0ifQ." \\
+  -d '{"to":"attacker","amount":100000}'`,
+vuln:`jwt.verify(token, SECRET); // library configured to allow 'none'`,
+fixcode:`jwt.verify(token, PUBLIC_KEY, {
+  algorithms:['RS256'],          // pin; never 'none'/HS fallback
+  audience:'payments', issuer:'auth.example.com'
+});`},
+{id:277,c:"Coupons & Gift Cards",t:"Coupon stacking & >100% — concrete",
+w:"Server applies each submitted code multiplicatively/additively with no cap, so duplicates or combos drive the total to zero or negative.",
+h:"Submit the same code several times and a mix; watch the total go below zero.",
+f:"Enforce one code (or explicit, tested stacking rules) server-side and clamp the total to >= 0.",
+curl:`curl -s -X POST https://localhost/cart/total -H 'Content-Type: application/json' \\
+  -d '{"unitPrice":100,"qty":1,"coupons":["SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10","SAVE10"]}'`,
+vuln:`let total = unitPrice*qty;
+for (const code of coupons) total *= (1 - pct(code)/100); // stacks`,
+fixcode:`const code = coupons[0];                 // at most one
+let total = unitPrice*qty;
+if (code) total = Math.max(0, total - discountFor(code, total));
+// discountFor validates eligibility, expiry, single-use, currency`},
+{id:278,c:"Cart & Pricing",t:"Client price tampering — concrete",
+w:"Checkout trusts a price/amount field from the client, so it can be set to 0.01.",
+h:"Intercept the checkout call and overwrite price; if the order completes at your price, it is vulnerable.",
+f:"Recompute the authoritative price server-side from product id+version; ignore any client price.",
+curl:`curl -s -X POST https://localhost/checkout -H 'Content-Type: application/json' \\
+  -d '{"productId":"laptop-pro","price":1,"qty":1}'`,
+vuln:`const total = req.body.price * req.body.qty; charge(total);`,
+fixcode:`const p = await catalog.get(req.body.productId); // server price
+if (!p || !p.purchasable) return res.status(400).end();
+const qty = toPositiveInt(req.body.qty);
+charge(p.priceCents * qty);`},
+{id:279,c:"API Security",t:"Mass assignment of balance/role/status — concrete",
+w:"The handler binds the whole request body to the model, so extra fields like balance, isAdmin, or paid get written.",
+h:"Add unexpected fields (balanceCents, role, status:'paid') to a normal update/create request.",
+f:"Bind only an explicit allow-list of fields; drop everything else.",
+curl:`curl -s -X PATCH https://localhost/account -H 'Content-Type: application/json' \\
+  -d '{"displayName":"x","balanceCents":1000000,"role":"admin"}'`,
+vuln:`Object.assign(user, req.body); await user.save(); // writes balance & role`,
+fixcode:`const { displayName } = req.body;          // allow-list
+user.displayName = String(displayName).slice(0,80);
+await user.save();`},
+{id:280,c:"Replay & Idempotency",t:"Missing idempotency -> double charge on retry",
+w:"A retried or double-clicked pay request with no idempotency key charges twice.",
+h:"Send the same pay request twice quickly (or with the same key but no server dedupe) and check for two captures.",
+f:"Require a client idempotency key, store first result against it, and return the stored result on repeats; bind the key to the request hash.",
+curl:`KEY=$(uuidgen)
+curl -s -X POST https://localhost/pay -H "Idempotency-Key: $KEY" -d '{"amount":5000}'
+curl -s -X POST https://localhost/pay -H "Idempotency-Key: $KEY" -d '{"amount":5000}'
+# second call must return the SAME charge, not a new one`,
+fixcode:`const key = req.get('Idempotency-Key');
+const hash = sha256(req.rawBody);
+const prior = await idem.get(key);
+if (prior){ if(prior.hash!==hash) return res.status(409).end();
+            return res.json(prior.result); }
+const result = await capture(req.body);
+await idem.putIfAbsent(key, {hash, result}); // unique constraint on key
+res.json(result);`},
+{id:281,c:"3DS & SCA",t:"3DS result spoofing / replay — concrete",
+w:"App trusts client-supplied 3DS fields (CAVV/ECI/transStatus) or reuses a prior authentication for a new charge.",
+h:"Submit a charge with transStatus='Y' and a CAVV copied from an earlier auth; see if it settles without a real challenge.",
+f:"Trust only the provider-validated authentication result tied to this transaction id; never accept these fields from the client.",
+ex:`attacker body: {"threeDS":{"transStatus":"Y","eci":"05","cavv":"<old>"}}
+secure: server ignores this and reads the auth result from the 3DS server by txnId`,
+curl:`curl -s -X POST https://localhost/pay -H 'Content-Type: application/json' \\
+  -d '{"amount":50000,"threeDS":{"transStatus":"Y","eci":"05","cavv":"AAA="}}'`},
+{id:282,c:"Gateway Integration",t:"Trusting browser redirect status — concrete",
+w:"After the gateway redirect, the app marks the order paid from a query param the browser controls.",
+h:"Cancel/fail at the gateway, then hit the return URL with status=success (and edit the amount) to force fulfillment.",
+f:"Confirm the payment via server-to-server retrieve or a verified webhook; never fulfill on browser-returned status.",
+curl:`# attacker opens the success return URL directly, no real payment
+curl -s "https://localhost/payment/return?orderId=1001&status=success&amount=1"`,
+vuln:`app.get('/payment/return',(req,res)=>{
+  if (req.query.status==='success') fulfil(req.query.orderId); // trusts URL
+});`,
+fixcode:`app.get('/payment/return', async (req,res)=>{
+  const intent = await gateway.retrieve(req.query.orderId); // authoritative
+  if (intent.status==='succeeded' && intent.amount===expected(req.query.orderId))
+    fulfil(req.query.orderId);
+  else res.status(402).send('not paid');
+});`},
+{id:283,c:"Wallets & P2P",t:"Concurrent withdrawal exceeds balance — concrete",
+w:"Balance is read, checked, then debited; parallel withdrawals all read the same balance and overdraw.",
+h:"With balance=100, fire several withdrawals of 100 in parallel; sum of successful payouts can exceed 100.",
+f:"Debit atomically with a guarded update or row lock so the balance can never go negative.",
+curl:`for i in 1 2 3 4 5; do
+  curl -s -X POST https://localhost/wallet/withdraw \\
+    -H 'Content-Type: application/json' -d '{"user":"alice","amount":100}' &
+done; wait`,
+vuln:`const b = await getBalance(u);
+if (b >= amt){ await sleep(15); await setBalance(u, b-amt); payout(u,amt); }`,
+fixcode:`const n = await db.run(
+  "UPDATE wallets SET balance=balance-? WHERE user=? AND balance>=?",
+  [amt,u,amt]);
+if (n.changes!==1) throw 'insufficient funds';
+await payout(u, amt);`},
+{id:284,c:"Refunds & Chargebacks",t:"Refund to a different account (laundering) — concrete",
+w:"The refund endpoint accepts a destination instrument/account, letting funds from one payer be returned to another.",
+h:"Pay with card A on account A, then request the refund crediting account/instrument B.",
+f:"Bind every refund to the original charge and original payer/instrument; never accept a client destination.",
+curl:`curl -s -X POST https://localhost/refund -H 'Content-Type: application/json' \\
+  -d '{"chargeId":"ch_A","destinationAccount":"attacker_B","amount":50000}'`,
+vuln:`refundTo(req.body.destinationAccount, req.body.amount); // attacker-chosen`,
+fixcode:`const ch = await charges.get(req.body.chargeId);
+if (ch.ownerId !== req.user.id) return res.status(403).end();
+const remaining = ch.captured - ch.refunded;
+const amt = Math.min(toPositiveInt(req.body.amount), remaining);
+await refundToOriginalInstrument(ch, amt); // destination is fixed by the charge`},
+
 ];
 buildFilters();render();
 </script>
